@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: user-service
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/batch14_user_management
+    username: postgres
+    password: JohnDev1!
+  jpa:
+    properties:
+      hibernate:
+        ddl: none
+        format_sql: true
+
+server:
+  port: 8081
+  servlet:
+    context-path: /user-service
+
+jwt:
+  secret-key: T&5^P6TZ4FHnqJIGQ,cKhW]4>-Yax^hagdq3417235gasdfasgd6S5a4s65F
+  expired-in: 3
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
