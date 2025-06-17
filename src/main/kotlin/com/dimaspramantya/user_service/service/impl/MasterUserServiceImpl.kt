@@ -1,7 +1,9 @@
 package com.dimaspramantya.user_service.service.impl
 
+import com.dimaspramantya.user_service.domain.constant.Constant
 import com.dimaspramantya.user_service.domain.dto.request.ReqLoginDto
 import com.dimaspramantya.user_service.domain.dto.request.ReqRegisterDto
+import com.dimaspramantya.user_service.domain.dto.request.ReqUpdateUserDto
 import com.dimaspramantya.user_service.domain.dto.response.ResGetUsersDto
 import com.dimaspramantya.user_service.domain.dto.response.ResLoginDto
 import com.dimaspramantya.user_service.domain.entity.MasterUserEntity
@@ -11,15 +13,19 @@ import com.dimaspramantya.user_service.repository.MasterUserRepository
 import com.dimaspramantya.user_service.service.MasterUserService
 import com.dimaspramantya.user_service.util.BCryptUtil
 import com.dimaspramantya.user_service.util.JwtUtil
-import org.springframework.http.HttpStatus
-import org.springframework.http.HttpStatusCode
+import jakarta.servlet.http.HttpServletRequest
+import org.springframework.cache.annotation.CacheEvict
+import org.springframework.cache.annotation.Cacheable
 import org.springframework.stereotype.Service
+import java.sql.Timestamp
 import java.util.*
+import kotlin.Int
 
 @Service
 class MasterUserServiceImpl(
     private val masterUserRepository: MasterUserRepository,
     private val masterRoleRepository: MasterRoleRepository,
+    private val httpServletRequest: HttpServletRequest,
     private val jwtUtil: JwtUtil,
     private val bcrypt: BCryptUtil
 ): MasterUserService {
@@ -119,7 +125,7 @@ class MasterUserServiceImpl(
 
         return ResLoginDto(token)
     }
-
+    @Cacheable("getUserById",key = "{#id}")
     override fun findUser(id: Int): ResGetUsersDto {
         val user = masterUserRepository.getDetailUser(id);
 
@@ -128,7 +134,7 @@ class MasterUserServiceImpl(
         }
 
         if (!user.isActive || user.isDelete) {
-            throw IllegalStateException("User tidak aktif atau sudah dihapus")
+            throw CustomException("User tidak aktif atau sudah dihapus", 403)
         }
 
         return ResGetUsersDto(
@@ -138,4 +144,87 @@ class MasterUserServiceImpl(
             roleId = user.role?.id
         )
     }
+
+    @CacheEvict(
+        value = ["getUserById"],
+        key = "{#userId}"
+    )
+    override fun updateUser(req: ReqUpdateUserDto, userId:Int): ResGetUsersDto {
+        val userId = httpServletRequest.getHeader(Constant.HEADER_USER_ID)
+//        val userRole = httpServletRequest.getHeader(Constant.HEADER_USER_ROLE)
+
+
+        val user = masterUserRepository.findById(userId.toInt()).orElseThrow {
+            throw CustomException("Tidak ada user yang ditemukan",400)
+        }
+
+        val existingUser = masterUserRepository.findFirstByUsername(req.username)
+        if(existingUser.isPresent){
+            if(existingUser.get().id != user.id){
+                throw CustomException("Email sudah Terdaftar",400)
+            }
+        }
+
+        val existingUserEmail = masterUserRepository.findFirstByEmail(req.email)
+        if(existingUserEmail != null){
+            if(existingUserEmail.id != user.id){
+                throw CustomException("Email sudah ditemukan",400)
+            }
+        }
+
+        user.email = req.email
+        user.username = req.username
+        user.updatedBy = userId
+
+        val result = masterUserRepository.save(user)
+
+        return ResGetUsersDto(
+            id = userId.toInt(),
+            email = result.email,
+            username = result.username
+
+        )
+
+    }
+
+    @CacheEvict(
+        value = ["getUserById"],
+        key = "{#id}"
+    )
+    override fun softDeleteUserById(id: Int) {
+        val userId = httpServletRequest.getHeader(Constant.HEADER_USER_ID)
+        val roleId = httpServletRequest.getHeader(Constant.HEADER_USER_ROLE)
+        if(roleId.toInt() != 1){
+            throw CustomException("Tidak bisa hapus kecuali admin", 400)
+        }
+        val now = Timestamp(System.currentTimeMillis())
+        val deleted = masterUserRepository.softDeleteById(
+            id = id,
+            deletedAt = now,
+            deletedBy = userId
+        )
+
+        if(deleted == 0){
+            throw CustomException("User tidak ditemukan",400)
+        }
+    }
+
+    @CacheEvict(
+        value = ["getUserById"],
+        key = "{#id}"
+    )
+    override fun hardDeleteUserById(id: Int) {
+        val userId = httpServletRequest.getHeader(Constant.HEADER_USER_ID)
+        val roleId = httpServletRequest.getHeader(Constant.HEADER_USER_ROLE)
+        if(roleId.toInt() != 1){
+            throw CustomException("Tidak bisa hapus kecuali admin", 403)
+        }
+        val delete = masterUserRepository.hardDeleteById(id)
+        if(delete == 0){
+            throw CustomException("User tidak ditemukan",400)
+        }
+
+    }
+
+
 }
